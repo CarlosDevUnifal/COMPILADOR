@@ -61,8 +61,23 @@ int pos; // posição do tipo na tabela de simbolos
 %%
 
 programa 
-   : cabecalho definicoes variaveis 
-        { 
+   : cabecalho
+         {
+           strcpy(elemTab.id, "inteiro");
+           elemTab.end = -1;
+           elemTab.tip = INT;
+           elemTab.tam = 1;
+           elemTab.pos = 0;
+           insereSimbolo(elemTab);
+           strcpy(elemTab.id, "logico");
+           elemTab.end = -1;
+           elemTab.tip = LOG;
+           elemTab.tam = 1;
+           elemTab.pos = 1;
+           insereSimbolo(elemTab);
+          } 
+     definicoes variaveis 
+        {  
             mostraTabela();
             empilha (contaVar);
             if (contaVar)
@@ -86,40 +101,48 @@ tipo
    : T_LOGICO
          { 
             tipo = LOG; 
-            // TODO #1
-            // Além do tipo, precisa guardar o TAM (tamanho) do
-            // tipo e a POS (posição) do tipo na tab. símbolos
+            tam = 1;
+            pos = 1;
          }
    | T_INTEIRO
          { 
             tipo = INT;
-            // idem 
+            tam = 1;
+            pos = 0;
         }
    | T_REGISTRO T_IDENTIF
          { 
             tipo = REG; 
-            // TODO #2
-            // Aqui tem uma chamada de buscaSimbolo para encontrar
-            // as informações de TAM e POS do registro
+            int i = buscaSimbolo(atomo);
+            if (i != -1) {
+               tam = tabSimb[i].tam;
+               pos = tabSimb[i].pos;
+            } else {
+               // Trate o caso em que o registro não é encontrado
+               yyerror("Registro não encontrado na tabela de símbolos");
+            }
          }
    ;
 
 definicoes
-   : define definicoes
+   : def definicoes
    | /* vazio */
    ;
 
-define 
+def 
    : T_DEF
-        {
-            // TODO #3
+        {   //aqui começa as mod
+            // TODO #3 - OK
             // Iniciar a lista de campos
+            elemTab.deslocamentoAcumulado = 0;
+            elemTab.campos = NULL;
         } 
    definicao_campos T_FIMDEF T_IDENTIF
        {
-           // TODO #4
+           // TODO #4 - OK
            // Inserir esse novo tipo na tabela de simbolos
            // com a lista que foi montada
+           insereRegistroESeusCampos(atomo, elemTab.campos);
        }
    ;
 
@@ -131,17 +154,14 @@ definicao_campos
 lista_campos
    : lista_campos T_IDENTIF
       {
-         // TODO #5
-         // acrescentar esse campo na lista de campos que
-         // esta sendo construida
-         // o deslocamento (endereço) do próximo campo
-         // será o deslocamento anterior mais o tamanho desse campo
+          insereCampo(&elemTab.campos, atomo, tipo, elemTab.deslocamentoAcumulado, tam, pos);
+          elemTab.deslocamentoAcumulado += tam; // Atualiza o deslocamento acumulado
       }
    | T_IDENTIF
       {
-        // idem
+          insereCampo(&elemTab.campos, atomo, tipo, elemTab.deslocamentoAcumulado, tam, pos);
+          elemTab.deslocamentoAcumulado += tam; // Atualiza o deslocamento acumulado
       }
-   ;
 
 variaveis
    : /* vazio */
@@ -154,31 +174,47 @@ declaracao_variaveis
    ;
 
 lista_variaveis
-   : lista_variaveis
-     T_IDENTIF 
+   : lista_variaveis T_IDENTIF
         { 
             strcpy(elemTab.id, atomo);
-            elemTab.end = contaVar;
+            elemTab.end = contaVar;  // Endereço atual
             elemTab.tip = tipo;
-            // TODO #6
-            // Tem outros campos para acrescentar na tab. símbolos
-            insereSimbolo (elemTab);
-            contaVar++; 
-            // TODO #7
-            // Se a variavel for registro
-            // contaVar = contaVar + TAM (tamanho do registro)
+            elemTab.tam = tam;
+            elemTab.pos = pos;    // Posição na tabela de símbolos
+            
+            if (tipo == REG) {
+                // Busca os campos do registro correspondente e atribui a elemTab.campos
+                CampoReg* camposDoTipo = buscaTipoRegistroPorPosicao(elemTab.pos);
+                if (camposDoTipo != NULL) {
+                    elemTab.campos = copiaCampos(camposDoTipo);
+                }
+                contaVar += tam; // Incrementa contaVar pelo tamanho total do registro
+            } else {
+                contaVar++; // Para tipos INT e LOG, incrementa contaVar por 1
+            }
+            insereSimbolo(elemTab); // Insere o símbolo na tabela
         }
    | T_IDENTIF
        { 
+            // Mesma lógica que acima
             strcpy(elemTab.id, atomo);
             elemTab.end = contaVar;
             elemTab.tip = tipo;
-            // idem
-            insereSimbolo (elemTab);
-            contaVar++;
-            // bidem 
-       }
+            elemTab.tam = tam;
+            elemTab.pos = pos;
+            if (tipo == REG) {
+                CampoReg* camposDoTipo = buscaTipoRegistroPorPosicao(elemTab.pos);
+                if (camposDoTipo != NULL) {
+                    elemTab.campos = copiaCampos(camposDoTipo);
+                }
+                contaVar += tam;
+            } else {
+                contaVar++;
+            }
+            insereSimbolo(elemTab);
+        }
    ;
+
 
 lista_comandos
    : /* vazio */
@@ -318,36 +354,76 @@ expressao_acesso
        {   //--- Primeiro nome do registro
            if (!ehRegistro) {
               ehRegistro = 1;
-              // TODO #12
+              // TODO #12 - FEITO
               // 1. busca o simbolo na tabela de símbolos
               // 2. se não for do tipo registo tem erro
               // 3. guardar o TAM, POS e DES desse t_IDENTIF
+              int busca = buscaSimbolo(atomo);
+              if (busca != -1 && tabSimb[busca].tip != REG) {
+                 yyerror("Tipo esperado: REG");
+              }
+              tam = tabSimb[busca].tam;
+              pos = tabSimb[busca].pos;
+              des = 0; // Deslocamento inicial
            } else {
               //--- Campo que eh registro
               // 1. busca esse campo na lista de campos
               // 2. se não encontrar, erro
               // 3. se encontrar e não for registro, erro
               // 4. guardar o TAM, POS e DES desse CAMPO
+              CampoReg *campoAtual = tabSimb[pos].campos;
+              while (campoAtual) {
+                 if (strcmp(campoAtual->nomeCampo, atomo) == 0) {
+                    if (campoAtual->tipoCampo != REG) {
+                       yyerror("Tipo esperado: REG");
+                    }
+                    tam = campoAtual->tam;
+                    pos = campoAtual->pos;
+                    des = campoAtual->deslocamento;
+                    break;
+                 }
+                 campoAtual = campoAtual->prox;
+              }
+              if (!campoAtual) {
+                 yyerror("Campo não encontrado no registro");
+              }
            }
        }
      expressao_acesso
    | T_IDENTIF
        {   
            if (ehRegistro) {
-               // TODO #13
+               // TODO #13 - FEITO
                // 1. buscar esse campo na lista de campos
                // 2. Se não encontrar, erro
                // 3. guardar o TAM, DES e TIPO desse campo.
                //    o tipo (TIP) nesse caso é a posição do tipo
                //    na tabela de simbolos
+               CampoReg *campoAtual = tabSimb[pos].campos;
+               while (campoAtual) {
+                  if (strcmp(campoAtual->nomeCampo, atomo) == 0) {
+                     tam = campoAtual->tam;
+                     des = campoAtual->deslocamento;
+                     pos = campoAtual->tipoCampo == REG ? campoAtual->pos : -1;
+                     break;
+                  }
+                  campoAtual = campoAtual->prox;
+               }
+               if (!campoAtual) {
+                  yyerror("Campo não encontrado no registro");
+               }
            }
            else {
-              // TODO #14
+              // TODO #14 - FEITO
               int pos = buscaSimbolo (atomo);
               // guardar TAM, DES e TIPO dessa variável
+              tam = tabSimb[pos].tam;
+              des = 0; // Não se aplica, pois não é um registro
+              pos = pos; // Não se aplica, pois não é um registro
            }
            ehRegistro = 0;
        };
+
 
 termo
    : expressao_acesso

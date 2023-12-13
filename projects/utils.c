@@ -14,8 +14,6 @@ typedef struct campoReg {
     struct campoReg *prox; // Próximo campo
 } CampoReg;
 
-
-
 //acrescentar campos na tabela
 struct elemTabSimbolos {
     char id[100];   // nome do identificador
@@ -23,9 +21,10 @@ struct elemTabSimbolos {
     int tip;        // tipo
     int tam;        // tamanho
     int pos;        // posicao
+    int deslocamentoAcumulado;
     int deslocamento;
     CampoReg *campos; // Lista de campos para registros
-} tabSimb[TAM_TAB], elemTab;
+} tabSimb[TAM_TAB], elemTab;    
 
 enum{
     INT,
@@ -65,41 +64,87 @@ void insereSimbolo(struct elemTabSimbolos elem) {
 
 void insereCampo(CampoReg **lista, char *nome, int tipo, int deslocamento, int tam, int pos) {
     CampoReg *novoCampo = (CampoReg *)malloc(sizeof(CampoReg));
+    if (!novoCampo) {
+        yyerror("Erro de alocação de memória");
+        return;
+    }
+
     strcpy(novoCampo->nomeCampo, nome);
     novoCampo->tipoCampo = tipo;
     novoCampo->deslocamento = deslocamento;
     novoCampo->tam = tam;
     novoCampo->pos = pos;
-    novoCampo->prox = *lista;
-    *lista = novoCampo;
+    novoCampo->prox = NULL;
+
+    // Se a lista estiver vazia, insira no início
+    if (*lista == NULL) {
+        *lista = novoCampo;
+    } else {
+        // Caso contrário, percorra até o final da lista e insira o novo campo
+        CampoReg *atual = *lista;
+        while (atual->prox != NULL) {
+            atual = atual->prox;
+        }
+        atual->prox = novoCampo;
+    }
 }
 
+
+// Função para buscar o tipo de registro na tabela de símbolos pela posição
+CampoReg* buscaTipoRegistroPorPosicao(int posicao) {
+    for (int i = 0; i < posTab; i++) {
+        if (tabSimb[i].pos == posicao && tabSimb[i].tip == REG) {
+            return tabSimb[i].campos;
+        }
+    }
+    return NULL;
+}
+
+CampoReg* copiaCampos(CampoReg *camposOriginais) {
+    if (!camposOriginais) return NULL;
+
+    CampoReg *novoCampo = (CampoReg *)malloc(sizeof(CampoReg));
+    CampoReg *head = novoCampo;
+
+    while (camposOriginais) {
+        *novoCampo = *camposOriginais;
+        camposOriginais = camposOriginais->prox;
+        if (camposOriginais) {
+            novoCampo->prox = (CampoReg *)malloc(sizeof(CampoReg));
+            novoCampo = novoCampo->prox;
+        } else {
+            novoCampo->prox = NULL;
+        }
+    }
+
+    return head;
+}
+
+
 void insereRegistroESeusCampos(char *nomeRegistro, CampoReg *campos) {
-    // Insere o registro
     strcpy(elemTab.id, nomeRegistro);
     elemTab.end = -1;
     elemTab.tip = REG;
-    elemTab.tam = 0; // Calculado com base nos campos
+    elemTab.tam = 0;
     elemTab.pos = posTab;
-    insereSimbolo(elemTab);
+    elemTab.campos = campos;
+    insereSimbolo(elemTab); // Insere o registro na tabela de símbolos
 
     int deslocamentoAtual = 0;
-    while (campos != NULL) {
-        // Insere cada campo como uma entrada separada
-        strcpy(elemTab.id, campos->nomeCampo);
-        elemTab.end = posTab; // Endereço do campo é a posição atual
-        elemTab.tip = campos->tipoCampo;
-        elemTab.tam = 1; // Supondo tamanho 1 para INT e LOG
-        elemTab.deslocamento = deslocamentoAtual; // Deslocamento do campo no registro
-        insereSimbolo(elemTab);
+    CampoReg *campoAtual = campos;
 
-        deslocamentoAtual += elemTab.tam; // Atualiza o deslocamento
-        campos = campos->prox;
+    while (campoAtual != NULL) {
+        // Não insere os campos individuais na tabela de símbolos
+        // Apenas atualiza o deslocamento e o tamanho total do registro
+        deslocamentoAtual += campoAtual->tam;
+        campoAtual = campoAtual->prox;
     }
 
     // Atualiza o tamanho total do registro
     tabSimb[elemTab.pos].tam = deslocamentoAtual;
 }
+
+
 
 void mostraTabela() {
     printf("\n-----------------------TABELA DE SIMBOLOS------------------------\n");
@@ -112,9 +157,15 @@ void mostraTabela() {
         if (tabSimb[i].tip == REG && tabSimb[i].campos != NULL) {
             CampoReg *campoAtual = tabSimb[i].campos;
             while (campoAtual) {
-                printf(" (%s,%s,%d,%d,%d)=>",
-                    campoAtual->nomeCampo, nomeTipo[campoAtual->tipoCampo],
-                    campoAtual->deslocamento, campoAtual->tam, campoAtual->pos);
+                if(campoAtual->prox){
+                    printf(" (%s,%s,%d,%d,%d)=>",
+                        campoAtual->nomeCampo, nomeTipo[campoAtual->tipoCampo],
+                        campoAtual->pos, campoAtual->deslocamento, campoAtual->tam);
+                } else {
+                    printf(" (%s,%s,%d,%d,%d)",
+                        campoAtual->nomeCampo, nomeTipo[campoAtual->tipoCampo],
+                        campoAtual->pos, campoAtual->deslocamento, campoAtual->tam);
+                }
                 campoAtual = campoAtual->prox;
             }
         }
